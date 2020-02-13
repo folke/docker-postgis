@@ -43,8 +43,14 @@ primary_conninfo = 'host=${REPLICATE_FROM} port=${REPLICATE_PORT} user=${REPLICA
 recovery_target_timeline=${TARGET_TIMELINE}
 recovery_target_action=${TARGET_ACTION}
 promote_trigger_file = '${PROMOTE_FILE}'
-shared_preload_libraries = 'pg_cron'
+shared_preload_libraries = 'pg_cron,auto_explain,pg_qualstats,pg_stat_statements'
 cron.database_name = '${SINGLE_DB}'
+pg_qualstats.enabled = true
+pg_qualstats.track_constants = true
+pg_qualstats.max = 1000
+pg_qualstats.resolve_oids = true
+pg_qualstats.sample_rate = 0.1
+track_activity_query_size = 4096
 EOF
 
 

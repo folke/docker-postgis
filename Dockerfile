@@ -20,7 +20,11 @@ RUN wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc -O- | a
 # on docker hub e.g.
 # The following packages have unmet dependencies:
 RUN apt-get update; apt-get install -y postgresql-client-12 postgresql-common postgresql-12 postgresql-12-postgis-3 \
- netcat postgresql-12-ogr-fdw postgresql-12-postgis-3-scripts postgresql-12-cron postgresql-plpython3-12
+    netcat postgresql-12-ogr-fdw postgresql-12-postgis-3-scripts postgresql-12-cron postgresql-plpython3-12
+
+
+# Splora Edits
+RUN apt-get install -y postgresql-12-hypopg postgresql-12-pg-qualstats postgresql-contrib-12
 
 # Open port 5432 so linked containers can see them
 EXPOSE 5432
