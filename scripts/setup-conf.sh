@@ -4,24 +4,24 @@ source /scripts/env-data.sh
 
 SETUP_LOCKFILE="${ROOT_CONF}/.postgresql.conf.lock"
 if [ -f "${SETUP_LOCKFILE}" ]; then
-  return 0
+	return 0
 fi
 
-list=($(echo ${POSTGRES_DBNAME} | tr ',' ' '))
+list=(`echo ${POSTGRES_DBNAME} | tr ',' ' '`)
 arr=(${list})
 SINGLE_DB=${arr[0]}
 # This script will setup necessary configuration to enable replications
 
 # Refresh configuration in case environment settings changed.
-cat $CONF.template >$CONF
+cat $CONF.template > $CONF
 
 # Reflect DATADIR loaction
 # Delete any data_dir declarations
 sed -i '/data_directory/d' $CONF
-echo "data_directory = '${DATADIR}'" >>$CONF
+echo "data_directory = '${DATADIR}'" >> $CONF
 
 # This script will setup necessary configuration to optimise for PostGIS and to enable replications
-cat >>$CONF <<EOF
+cat >> $CONF <<EOF
 superuser_reserved_connections= 10
 listen_addresses = '${IP_LIST}'
 shared_buffers = 500MB
@@ -40,8 +40,10 @@ EOF
 
 # This script will setup necessary replication settings
 
-if [[ "${REPLICATION}" =~ [Tt][Rr][Uu][Ee] && "$WAL_LEVEL" == 'logical' ]]; then
-  cat >>"$CONF" <<EOF
+
+
+if [[  "${REPLICATION}" =~ [Tt][Rr][Uu][Ee] && "$WAL_LEVEL" == 'logical' ]]; then
+cat >> "$CONF" <<EOF
 wal_level = ${WAL_LEVEL}
 max_wal_senders = ${PG_MAX_WAL_SENDERS}
 wal_keep_segments = ${PG_WAL_KEEP_SEGMENTS}
@@ -52,8 +54,8 @@ max_sync_workers_per_subscription = ${MAX_SYNC_WORKERS_PER_SUBSCRIPTION}
 EOF
 fi
 
-if [[ "${REPLICATION}" =~ [Tt][Rr][Uu][Ee] && "$WAL_LEVEL" == 'replica' ]]; then
-  cat >>"$CONF" <<EOF
+if [[ "${REPLICATION}" =~ [Tt][Rr][Uu][Ee] &&  "$WAL_LEVEL" == 'replica' ]]; then
+cat >> "$CONF" <<EOF
 wal_level = ${WAL_LEVEL}
 archive_mode = ${ARCHIVE_MODE}
 archive_command = '${ARCHIVE_COMMAND}'
@@ -84,12 +86,12 @@ track_activity_query_size = 4096
 EOF
 fi
 
-echo -e $EXTRA_CONF >>$CONF
+echo -e $EXTRA_CONF >> $CONF
 
 # Optimise PostgreSQL shared memory for PostGIS
 # shmall units are pages and shmmax units are bytes(?) equivalent to the desired shared_buffer size set in setup_conf.sh - in this case 500MB
-echo "kernel.shmmax=543252480" >>/etc/sysctl.conf
-echo "kernel.shmall=2097152" >>/etc/sysctl.conf
+echo "kernel.shmmax=543252480" >> /etc/sysctl.conf
+echo "kernel.shmall=2097152" >> /etc/sysctl.conf
 
 # Put lock file to make sure conf was not reinitialized
 touch ${SETUP_LOCKFILE}
