@@ -2,8 +2,6 @@
 
 # docker-postgis-splora
 
-
-
 A simple docker container that runs PostGIS
 
 Visit our page on the docker hub at: https://hub.docker.com/r/kartoza/postgis/
@@ -53,10 +51,13 @@ There are various ways to get the image onto your system:
 The preferred way (but using most bandwidth for the initial image) is to
 get our docker trusted build like this:
 
+```
+docker pull kartoza/postgis:image_version
+```
 
-```
-docker pull kartoza/postgis
-```
+
+
+## Building the image
 
 To build the image yourself without apt-cacher (also consumes more bandwidth
 since deb packages need to be refetched each time you build) do:
@@ -65,31 +66,117 @@ since deb packages need to be refetched each time you build) do:
 docker build -t kartoza/postgis git://github.com/kartoza/docker-postgis
 ```
 
-To build with apt-cacher (and minimise download requirements) you need to
-clone this repo locally first and modify the contents of 71-apt-cacher-ng to
-match your cacher host. Then build using a local url instead of directly from
-github.
+Alternatively clone the repository and build against any preferred branch 
 
 ```
 git clone git://github.com/kartoza/docker-postgis
+git checkout branch_name
 ```
 
-Now edit ``71-apt-cacher-ng`` then do:
+Then do:
 
 ```
 docker build -t kartoza/postgis .
 ```
 
-## Run
+#### Alternative base distributions builds
 
+There are build args for `DISTRO` (=debian), `IMAGE_VERSION` (=buster)
+and `IMAGE_VARIANT` (=slim) which can be used to control the base image used
+(but it still needs to be Debian based and have PostgreSQL official apt repo).
 
-To create a running container do:
+For example making Ubuntu 20.04 based build (for better arm64 support)
+First build the base image using the branch `postgres-base` following instructions from [Kartoza base image builds](https://github.com/kartoza/docker-postgis/tree/postgres-base#alternative-base-distributions-builds)
+
+And then build the `PostGIS Image` using
 
 ```
-docker run --name "postgis" -p 25432:5432 -d -t kartoza/postgis
+docker build --build-arg DISTRO=ubuntu --build-arg IMAGE_VERSION=focal --build-arg IMAGE_VARIANT="" -t kartoza/postgis .
 ```
 
-## Environment variables
+#### Locales
+
+By default, the image build will include **all** `locales` to cover any value for `locale` settings such as `DEFAULT_COLLATION`, `DEFAULT_CTYPE` or `DEFAULT_ENCODING`. 
+
+You can safely delete all `locales` except for the ones you need in `scripts/locale.gen`. This will speed up the build considerably.
+
+You can also run the container using the environment variables.
+### Environment variables
+
+#### Cluster Initializations
+
+With minimum setup, our image will use initial cluster located in the
+`DATADIR` environment variable. If you want to use persistence, mount these
+location into your volume/host. By default, `DATADIR` will point to `/var/lib/postgresql/{major-version}`.
+You can instead mount the parent location like this:
+
+* `-v data-volume:/var/lib/postgresql`
+
+This default cluster will be initialized with default locale settings `C.UTF-8`.
+If, for instance, you want to create a new cluster with your own settings (not using the default cluster).
+You need to specify different empty directory, like this
+
+```shell script
+-v data-volume:/opt/postgres/data \
+-e DATADIR:/opt/postgres/data \
+-e DEFAULT_ENCODING="UTF8" \
+-e DEFAULT_COLLATION="id_ID.utf8" \
+-e DEFAULT_CTYPE="id_ID.utf8" \
+-e --auth="md5" \
+-e INITDB_EXTRA_ARGS="<some more initdb command args>"
+```
+
+The containers will use above parameters to initialize a new db cluster in the
+specified directory. If the directory is not empty, then initialization parameter will be ignored.
+
+These are some initialization parameter that will only be used to initialize new cluster.
+If the container uses existing cluster, it will be ignored (for example, when the container restarts).
+
+* `DEFAULT_ENCODING`: cluster encoding
+* `DEFAULT_COLLATION`: cluster collation
+* `DEFAULT_CTYPE`: cluster ctype
+* `WAL_SEGSIZE`: WAL segsize option
+* `--auth` : PASSWORD AUTHENTICATION
+* `INITDB_EXTRA_ARGS`: extra parameter that will be passed down to `initdb` command
+
+In addition to that, we have another parameter: `RECREATE_DATADIR` that can be used to force database reinitializations.
+If this parameter is specified as `TRUE` it will act as explicit consent to delete `DATADIR` and create
+new db cluster.
+
+* `RECREATE_DATADIR`: Force database reinitializations in the location `DATADIR`
+
+If you used `RECREATE_DATADIR` and successfully created new cluster. Remember
+that you should remove this parameter afterwards. Because, if it was not omitted,
+it will always recreate new db cluster after every container restarts.
+
+#### Postgres Encoding
+
+The database cluster is initialised with the following encoding settings
+
+`
+-E "UTF8" --lc-collate="en_US.UTF-8" --lc-ctype="en_US.UTF-8"
+`
+
+or
+
+`
+-E "UTF8" --lc-collate="C.UTF-8" --lc-ctype="C.UTF-8"
+`
+
+If you use default `DATADIR` location.
+
+If you need to setup a database cluster with other encoding parameters you need
+to pass the environment variables when you initialize the cluster.
+
+* -e DEFAULT_ENCODING="UTF8"
+* -e DEFAULT_COLLATION="en_US.UTF-8"
+* -e DEFAULT_CTYPE="en_US.UTF-8"
+
+Initializing a new cluster can be done by using different `DATADIR` location and
+mounting an empty volume. Or use parameter `RECREATE_DATADIR` to forcefully
+delete the current cluster and create a new one. Make sure to remove parameter
+`RECREATE_DATADIR` after creating the cluster.
+
 
 #### Basic configuration
 
@@ -99,18 +186,23 @@ user name, password and/or default database name(or multiple databases comma sep
 * `-e POSTGRES_USER=<PGUSER>`
 * `-e POSTGRES_PASS=<PGPASSWORD>`
 * `-e POSTGRES_DBNAME=<PGDBNAME>`
-* `-e POSTGRES_MULTIPLE_EXTENSIONS=postgis,hstore,postgis_topology`
+* `-e POSTGRES_MULTIPLE_EXTENSIONS=postgis,hstore,postgis_topology,postgis_raster,pgrouting`
 
 You can pass as many extensions as you need.
+* `-e SHARED_PRELOAD_LIBRARIES='pg_cron'`
+Some extensions need to be registered in the postgresql.conf
+as shared_preload_libraries. pg_cron should always be added because
+the extension is installed with the image.
 * `-e SSL_CERT_FILE=/your/own/ssl_cert_file.pem`
 * `-e SSL_KEY_FILE=/your/own/ssl_key_file.key`
 * `-e SSL_CA_FILE=/your/own/ssl_ca_file.pem`
 * `-e DEFAULT_ENCODING="UTF8"`
 * `-e DEFAULT_COLLATION="en_US.UTF-8"`
 * `-e DEFAULT_CTYPE="en_US.UTF-8"`
-  
-#### Specifies whether extensions will also be installed in template1 database.
+
 * `-e POSTGRES_TEMPLATE_EXTENSIONS=true`
+
+ ` Specifies whether extensions will also be installed in template1 database.`
 
 #### Configures archive mode
 
@@ -119,11 +211,11 @@ When `ARCHIVE_MODE` is changed to `on`, the archiving command will copy WAL file
 
 [More info: 19.5. Write Ahead Log](https://www.postgresql.org/docs/12/runtime-config-wal.html)
 
-* `-e ARCHIVE_MODE off`
-* `-e ARCHIVE_COMMAND "test ! -f /opt/archivedir/%f && cp %p /opt/archivedir/%f"`
+* `-e ARCHIVE_MODE=off`
+* `-e ARCHIVE_COMMAND="test ! -f /opt/archivedir/%f && cp %p /opt/archivedir/%f"`
 [More info](https://www.postgresql.org/docs/12/continuous-archiving.html#BACKUP-ARCHIVING-WAL)
-* `-e ARCHIVE_CLEANUP_COMMAND 'cp /opt/archivedir/%f "%p"'`
-* `-e RESTORE_COMMAND 'pg_archivecleanup /opt/archivedir %r'`
+* `-e ARCHIVE_CLEANUP_COMMAND="pg_archivecleanup /opt/archivedir %r"`
+* `-e RESTORE_COMMAND='cp /opt/archivedir/%f "%p"'`
 
 #### Configure WAL level
 * `-e WAL_LEVEL=replica`
@@ -152,6 +244,11 @@ You can also define any other configuration to add to `postgres.conf`, separated
 
 * `-e EXTRA_CONF="log_destination = 'stderr'\nlogging_collector = on"`
 
+If you want to reinitialize the data directory from scratch, you need to do:
+
+1. Do backup, move data, etc. Any preparations before deleting your data directory.
+2. Set environment variables `RECREATE_DATADIR=TRUE`. Restart the service
+3. The service will delete your `DATADIR` directory and start reinitializing your data directory from scratch.
 
 ## Docker secrets
 
@@ -165,6 +262,16 @@ For more information see [https://docs.docker.com/engine/swarm/secrets/](https:/
 
 Currently, `POSTGRES_PASS`, `POSTGRES_USER` and `POSTGRES_DB` are supported.
 
+
+## Running the container
+
+### Using the terminal
+
+To create a running container do:
+
+```
+docker run --name "postgis" -p 25432:5432 -d -t kartoza/postgis
+```
 
 ## Convenience docker-compose.yml
 
@@ -235,8 +342,57 @@ docker run -d -v $HOME/postgres_data:/var/lib/postgresql kartoza/postgis`
 You need to ensure the ``postgres_data`` directory has sufficient permissions
 for the docker process to read / write it.
 
+## Postgres SSL setup
+
+By default the image is delivered with an unsigned SSL certificate. This helps to have an
+encrypted connection to clients and avoid eavesdropping but does not help to mitigate
+man in the middle (MITM) attacks.
+
+You need to provide your own, signed private key to avoid this kind of attacks (and make
+sure clients connect with verify-ca or verify-full sslmode).
+
+The following is an example Dockerfile that sets up a container with custom ssl private key and certificate:
+
+```
+FROM kartoza/postgis:11.0-2.5
+
+ADD ssl_cert.pem /etc/ssl/certs/ssl_cert.pem
+ADD localhost_ssl_key.pem /etc/ssl/private/ssl_key.pem
+
+RUN chmod 400 /etc/ssl/private/ssl_key.pem
+```
+
+And a docker-compose.yml to initialize with this configuration:
+
+```
+services:
+  postgres:
+    build:
+      dockerfile: Dockerfile
+      context: ssl_secured_docker
+    environment:
+      - SSL_CERT_FILE=/etc/ssl/certs/ssl_cert.pem
+      - SSL_KEY_FILE=/etc/ssl/private/ssl_key.pem
+```
+
+See [the postgres documentation about SSL](https://www.postgresql.org/docs/11/libpq-ssl.html#LIBQ-SSL-CERTIFICATES) for more information.
+
+See [the postgres documentation about encoding](https://www.postgresql.org/docs/11/multibyte.html) for more information.
+
+
 ## Postgres Replication Setup
 
+The image supports replication out of the box. The two mains replication methods allowed are
+* Streaming replication
+* Logical replication
+
+You can also use the environment variable `-e REPLICATION=false` that disables replication.
+This can be useful in situation you need to have a database for running example Unit tests.
+
+`docker run --name "repl" -e REPLICATION=false -it  kartoza/postgis:12.0`
+
+### Streaming replication
+By default a running container will support streaming replication.
 Replication allows you to maintain two or more synchronised copies of a database, with a
 single **master** copy and one or more **replicant** copies. The animation below illustrates
 this - the layer with the red boundary is accessed from the master database and the layer
@@ -254,7 +410,7 @@ mirror database content from a designated master. This replication scheme allows
 us to sync databases. However a `replicant` is only for read-only transaction, thus
 we can't write new data to it. The whole database cluster will be replicated.
 
-### Database permissions
+#### Database permissions
 Since we are using a role ${REPLICATION_USER}, we need to ensure that it has access to all
 the tables in a particular schema. So if a user adds another schema called `data`
 to the database `gis` he also has to update the permission for the user
@@ -262,7 +418,11 @@ with the following SQL assuming the ${REPLICATION_USER} is called replicator
 
      ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO replicator;
 
-To experiment with the replication abilities, you can see a (docker-compose.yml)[sample/replication/docker-compose.yml]
+
+**NB** You need to setup a strong password for replication otherwise the 
+default password for ${REPLICATION_USER} will default to `replicator`
+
+To experiment with the replication abilities, you can see a [docker-compose.yml](sample/replication/docker-compose.yml)
 sample. There are several environment variables that you can set, such as:
 
 Master settings:
@@ -321,7 +481,7 @@ make slave-log
 
 You can try experiment with several scenarios to see how replication works
 
-### Sync changes from master to replicant
+#### Sync changes from master to replicant
 
 You can use any postgres database tools to create new tables in master, by
 connecting using POSTGRES_USER and POSTGRES_PASS credentials using exposed port.
@@ -345,7 +505,7 @@ make slave-shell
 
 Then view your changes using psql.
 
-### Promoting replicant to master
+#### Promoting replicant to master
 
 You will notice that you cannot make changes in replicant, because it is read-only.
 If somehow you want to promote it to master, you can specify `PROMOTE_MASTER: 'True'`
@@ -356,7 +516,7 @@ be in sync anymore. This is useful if the replicant needs to take over a failove
 However it is recommended to take additional action, such as creating a backup from the
 slave so a dedicated master can be created again.
 
-### Preventing replicant database destroy on restart
+#### Preventing replicant database destroy on restart
 
 You can optionally set `DESTROY_DATABASE_ON_RESTART: 'False'` after successful sync
 to prevent the database from being destroyed on restart. With this setting you can
@@ -367,64 +527,26 @@ However, you should note that this option doesn't mean anything if you didn't
 persist your database volume. Because if it is not persisted, then it will be lost
 on restart because docker will recreate the container.
 
-## Postgres SSL setup
+### Logical  replication
+To activate the following you need to use the environment variable
 
-By default the image is delivered with an unsigned SSL certificate. This helps to have an
-encrypted connection to clients and avoid eavesdropping but does not help to mitigate
-man in the middle (MITM) attacks.
-
-You need to provide your own, signed private key to avoid this kind of attacks (and make
-sure clients connect with verify-ca or verify-full sslmode).
-
-The following is an example Dockerfile that sets up a container with custom ssl private key and certificate:
+`WAL_LEVEL=logical` to get a running instance like
 
 ```
-FROM kartoza/postgis:11.0-2.5
-
-ADD ssl_cert.pem /etc/ssl/certs/ssl_cert.pem
-ADD localhost_ssl_key.pem /etc/ssl/private/ssl_key.pem
-
-RUN chmod 400 /etc/ssl/private/ssl_key.pem
+docker run --name "logical-replication" -e WAL_LEVEL=logical -d  kartoza/postgis:12.0
 ```
-
-And a docker-compose.yml to initialize with this configuration:
-
-```
-services:
-  postgres:
-    build:
-      dockerfile: Dockerfile
-      context: ssl_secured_docker
-    environment:
-      - SSL_CERT_FILE=/etc/ssl/certs/ssl_cert.pem
-      - SSL_KEY_FILE=/etc/ssl/private/ssl_key.pem
-```
-
-See [the postgres documentation about SSL](https://www.postgresql.org/docs/11/libpq-ssl.html#LIBQ-SSL-CERTIFICATES) for more information.
-
-## Postgres Encoding
-
-The database cluster is initialised with the following encoding settings
-
-`
--E "UTF8" --lc-collate="en_US.UTF-8" --lc-ctype="en_US.UTF-8"
-`
-
-If you need to setup a database cluster with other encoding parameters you need
-to pass the environment variables
-
-* -e DEFAULT_ENCODING="UTF8"
-* -e DEFAULT_COLLATION="en_US.UTF-8"
-* -e DEFAULT_CTYPE="en_US.UTF-8"
+For a detailed example see the docker-compose in the folder `sample/logical_replication`.
 
 
-See [the postgres documentation about encoding](https://www.postgresql.org/docs/11/multibyte.html) for more information.
+### Support
 
+If you require more substantial assistance from [kartoza](https://kartoza.com)  (because our work and interaction on docker-postgis is pro bono),
+please consider taking out a [Support Level Agreeement](https://kartoza.com/en/shop/product/support) 
 
 ## Credits
 
 Tim Sutton (tim@kartoza.com)
 Gavin Fleming (gavin@kartoza.com)
-Risky Maulana (rizky@kartoza.com)
+Rizky Maulana (rizky@kartoza.com)
 Admire Nyakudya (admire@kartoza.com)
 December 2018
